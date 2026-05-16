@@ -68,13 +68,13 @@ stopOnFailure: true
 stopOnDirtyUnrelatedChanges: true
 ```
 
-More autonomous operation must be explicit:
+MVP should allow larger batches only with approval-gated closeout:
 
 ```text
-/autopi TODO.md --max 20 --commit auto --push ask
+/autopi TODO.md --max 20 --commit ask --push ask
 ```
 
-`--push auto` should require explicit opt-in and a clear warning.
+`--commit auto` and `--push auto` are post-MVP and should require explicit opt-in plus clear warnings.
 
 ## 7. Supported TODO format
 
@@ -117,29 +117,22 @@ The agent receives exactly one selected task and must not start unrelated TODO i
 
 ## 9. Agent task prompt contract
 
-For each selected task, autopi sends a prompt like:
+For each selected task, autopi sends a short prompt like:
 
 ```text
-You are running under autopi.
+Autopi task <taskId> from <todoFile>:
+<task text>
 
-Task ID: <id>
-Task: <text>
-TODO file: <path>
-
-Rules:
-- Work only on this task.
-- Use subagents for reconnaissance, implementation, or review when useful.
-- Do not start other TODO items.
-- Run relevant verification.
-- At the end, call autopi_finish exactly once with structured result.
-- If blocked, call autopi_finish with status="blocked" and explain the blocker.
+Rules: work only on this task; do not start other TODO items; verify relevant changes; finish by calling autopi_finish once. If blocked, call autopi_finish with status=blocked.
 ```
+
+Keep detailed policy in deterministic extension code and documentation, not repeated prompt text.
 
 ## 10. Required agent completion tool
 
 Autopi registers a tool such as `autopi_finish`.
 
-Expected payload:
+Expected required payload:
 
 ```json
 {
@@ -147,11 +140,26 @@ Expected payload:
   "status": "done",
   "summary": "Refactored auth validation and added coverage.",
   "changedFiles": ["src/auth.ts", "test/auth.test.ts"],
-  "verification": ["npm test"],
-  "proposedCommitMessage": "refactor auth validation",
-  "semverImpact": "no bump",
+  "verification": [
+    {
+      "command": "npm test",
+      "status": "passed",
+      "exitCode": 0,
+      "notes": ""
+    }
+  ],
   "blockers": [],
   "openQuestions": []
+}
+```
+
+Optional payload fields:
+
+```json
+{
+  "proposedCommitMessage": "refactor auth validation",
+  "semverImpact": "no bump",
+  "changelogNeeded": false
 }
 ```
 
@@ -222,13 +230,13 @@ Commit modes:
 
 - `off`: never commit;
 - `ask`: propose commit and wait for approval;
-- `auto`: commit if checks pass and no ambiguity exists.
+- `auto`: post-MVP; commit if checks pass and no ambiguity exists.
 
 Push modes:
 
 - `off`: never push;
 - `ask`: propose exact remote/branch and wait for approval;
-- `auto`: push only after explicit configuration.
+- `auto`: post-MVP; push only after explicit configuration.
 
 ## 13. State persistence
 
@@ -239,6 +247,8 @@ Minimum ledger fields:
 ```json
 {
   "todoFile": "TODO.md",
+  "todoFileHash": "sha256:string",
+  "todoParsedAt": 0,
   "startedAt": 0,
   "updatedAt": 0,
   "currentTaskId": "auth-validation",
@@ -307,9 +317,18 @@ MVP is complete when:
 - Config file, e.g. `.autopi.json`.
 - Rich TODO metadata: priority, labels, dependencies, estimated risk.
 
-## 18. Open questions
+## 18. Design status
 
-- Should TODO status updates be written directly to `TODO.md` or only to autopi ledger by default?
-- Should `--commit auto` be allowed before `new-session` mode exists?
-- What exact schema should `autopi_finish` expose for SemVer/changelog decisions?
-- Should autopi ship as extension-only first, or as Pi Package with extension + skill + future CLI?
+MVP implementation decisions are specified in [`docs/DESIGN.md`](DESIGN.md), including:
+
+- Extension-first package shape.
+- Ledger-first TODO status handling.
+- Conservative Git defaults with no automatic push.
+- MVP `autopi_finish` schema and SemVer fields.
+- `ctx.compact()` as the MVP context-boundary mechanism.
+
+Remaining post-MVP questions:
+
+- When should `commit=auto`, `push=auto`, and `compress=new-session` become safe enough to enable?
+- Should a future CLI share the extension ledger format exactly or introduce a CLI-specific run store?
+- What richer TODO metadata should be supported first: priority, labels, dependencies, or risk?
